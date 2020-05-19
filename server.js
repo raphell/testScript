@@ -4,14 +4,17 @@ const path = require('path');
 const bodyParser = require('body-parser');
 
 const AWS = require('aws-sdk');
+AWS.config.region = 'eu-west-3';
+
 //const awsConfig = require('aws-config');
-const awsConfig =  {
+/*const awsConfig =  {
   'region': 'eu-west-3',
   'endpoint': 'http://localhost:8000',
   'accessKeyId': 'BLBLBLBLBLBLB',
   'secratAccessKey': 'BLBLBLBLBLLBLBLBLB'
 };
 AWS.config.update(awsConfig);
+*/
 //const s3 = new AWS.S3({});
 
 const PORT = process.env.HTTP_PORT || 8081;
