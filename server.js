@@ -5,9 +5,9 @@ const bodyParser = require('body-parser');
 
 const AWS = require('aws-sdk');
 AWS.config.region = 'eu-west-3';
-
 //const awsConfig = require('aws-config');
-/*const awsConfig =  {
+/*
+const awsConfig =  {
   'region': 'eu-west-3',
   'endpoint': 'http://localhost:8000',
   'accessKeyId': 'BLBLBLBLBLBLB',
@@ -21,15 +21,6 @@ const PORT = process.env.HTTP_PORT || 8081;
 const app = express();
 
 app.use(cors());
-
-app.use(function(req, res, next) {
-  res.header('Access-Control-Allow-Origin', '*')
-  res.header('Access-Control-Allow-Credentials', true)
-  res.header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept')
-  next()
-})
-
 app.use(express.static(path.join(__dirname, 'client', 'build')));
 app.use(bodyParser.json());
 
@@ -281,6 +272,29 @@ app.get('/food/:foodName', (req,res) => {
   });
 });
 
+app.get('/food/id/:foodId', (req,res) => {
+  console.log('IN GET FOOD ! : '+ req.params.foodId);
+  const docClient = new AWS.DynamoDB.DocumentClient();
+  var params = {
+    TableName: 'Food',
+    IndexName: "idFood-index",
+    KeyConditionExpression: 'idFood = :valId',
+    ExpressionAttributeValues: {
+      ':valId': parseInt(req.params.foodId)
+    }
+  };
+  docClient.query(params, function(err, data) {
+      if (err){
+        console.log('ERROR get food by id : '+JSON.stringify(err, null, 2));
+        res.send(err);
+      }
+      else {
+        console.log('succes get food by id: '+JSON.stringify(data, null, 2));
+        res.send(data);
+      }
+  });
+});
+
 
 app.get('/category/:nameCategory/foods', (req,res) => {
   console.log('IN GET FOOD ! : '+ req.params.nameCategory);
@@ -309,48 +323,141 @@ app.get('/category/:nameCategory/foods', (req,res) => {
 // ----------------------------------- SAMPLE ---------------------------------------------
 
 
-app.get('/gaspillage/:restaurantName', (req,res) => {
-  console.log('IN GET GASPILLAGE ! : '+ req.params.restaurantName+' - '+ JSON.stringify(req.query, null, 2));
+const getRecursiveSample = (req, res, total, current) => {
   const docClient = new AWS.DynamoDB.DocumentClient();
+  if (current == null) {
+    console.log('FIRST PAGE');
+    var params = null;
+    console.log('REQ : '+ req.query.date + ' and '+req.query.date.replace(/-/g, '_'))
+    if (req.query.food == undefined){
+      params = {
+        TableName: 'sample',
+        IndexName: 'restaurant_name-index',
+        KeyConditionExpression: 'restaurant_name = :valRestaurant',
+        FilterExpression: '(contains(image_ref, :valDate) OR contains(image_ref, :valDateAlt)) AND (mask_ref = :valMask)',
 
-  if (req.query.food == undefined){
-    var params = {
-      TableName: 'Sample',
-      IndexName: 'dateFoodIndex',
-      KeyConditionExpression: 'dateTimeSample = :valDate',
-      FilterExpression: 'restaurantName = :valRestaurant',
+        ExpressionAttributeValues: {
+          ':valDate': req.query.date,
+          ':valDateAlt': req.query.date.replace(/-/g, '_'),
+          ':valRestaurant': req.params.restaurantName,
+          ':valMask' : 'supervisely'
+        }
+      };
+    }
+    else {
+      params = {
+        TableName: 'sample',
+        IndexName: 'aliment_restaurant_index',
+        KeyConditionExpression: 'aliment_id = :valFood and restaurant_name = :valRestaurant',
+        FilterExpression: '(contains(image_ref, :valDate) OR contains(image_ref, :valDateAlt)) AND (mask_ref = :valMask)',
 
-      ExpressionAttributeValues: {
-        ':valDate': req.query.date,
-        ':valRestaurant': req.params.restaurantName
-      }
-    };
+        ExpressionAttributeValues: {
+          ':valDate': req.query.date,
+          ':valFood': parseInt(req.query.food),
+          ':valDateAlt': req.query.date.replace(/-/g, '_'),
+          ':valRestaurant': req.params.restaurantName,
+          ':valMask' : 'supervisely'
+        }
+      };
+    }
+    docClient.query(params, function(err, data) {
+        if (err){
+          console.log('ERROR while getting samples : '+JSON.stringify(err, null, 2));
+        }
+        else {
+          console.log('result get sample : '+data.Count);
+          current = data;
+          newTotal = {
+            Items: total.Items.concat(data.Items),
+            Count: total.Count + data.Count
+          }
+          if (current.LastEvaluatedKey == null) {
+            console.log('The Current LastEvaluatedKey :'+JSON.stringify(current.LastEvaluatedKey, null, 2));
+            res.send(newTotal)
+          }
+          else {
+            getRecursiveSample(req, res, newTotal, current)
+          }
+        }
+    });
   }
   else {
-    var params = {
-      TableName: 'Sample',
-      IndexName: 'dateFoodIndex',
-      KeyConditionExpression: 'dateTimeSample = :valDate and foodName = :valFood',
-      FilterExpression: 'restaurantName = :valRestaurant',
-
-      ExpressionAttributeValues: {
-        ':valDate': req.query.date,
-        ':valFood': req.query.food,
-        ':valRestaurant': req.params.restaurantName
-      }
-    };
+    var params = null;
+    console.log('REQ : '+ req.query.date + ' and '+req.query.date.replace(/-/g, '_'))
+    if (req.query.food == undefined){
+      params = {
+        TableName: 'sample',
+        IndexName: 'restaurant_name-index',
+        KeyConditionExpression: 'restaurant_name = :valRestaurant',
+        FilterExpression: '(contains(image_ref, :valDate) OR contains(image_ref, :valDateAlt)) AND (mask_ref = :valMask)',
+        ExclusiveStartKey:{
+                'sample_id': current.LastEvaluatedKey.sample_id,
+                'restaurant_name' : current.LastEvaluatedKey.restaurant_name
+        },
+        ExpressionAttributeValues: {
+          ':valDate': req.query.date,
+          ':valDateAlt': req.query.date.replace(/-/g, '_'),
+          ':valRestaurant': req.params.restaurantName,
+          ':valMask' : 'supervisely',
+        }
+      };
+    }
+    else {
+      //console.log('NYYYY : '+current.LastEvaluatedKey)
+      params = {
+        TableName: 'sample',
+        IndexName: 'aliment_restaurant_index',
+        KeyConditionExpression: 'aliment_id = :valFood and restaurant_name = :valRestaurant',
+        FilterExpression: '(contains(image_ref, :valDate) OR contains(image_ref, :valDateAlt)) AND (mask_ref = :valMask)',
+        ExclusiveStartKey: {
+                'sample_id': current.LastEvaluatedKey.sample_id,
+                'aliment_id': current.LastEvaluatedKey.aliment_id,
+                'restaurant_name' : current.LastEvaluatedKey.restaurant_name
+        },
+        ExpressionAttributeValues: {
+          ':valDate': req.query.date,
+          ':valFood': parseInt(req.query.food),
+          ':valDateAlt': req.query.date.replace(/-/g, '_'),
+          ':valRestaurant': req.params.restaurantName,
+          ':valMask' : 'supervisely',
+        }
+      };
+    }
+    docClient.query(params, function(err, data) {
+        if (err){
+          console.log('ERROR while getting samples : '+JSON.stringify(err, null, 2));
+        }
+        else {
+          console.log('result get sample : '+data.Count);
+          current = data;
+          newTotal = {
+            Items: total.Items.concat(data.Items),
+            Count: total.Count + data.Count
+          }
+          if (current.LastEvaluatedKey == null) {
+            console.log('the result : '+JSON.stringify(newTotal, null, 2)),
+            res.send(newTotal)
+          }
+          else {
+            getRecursiveSample(req, res, newTotal, current)
+          }
+        }
+    });
   }
+}
 
-  console.log('params : '+JSON.stringify(params.ExpressionAttributeValues, null, 2));
-  docClient.query(params, function(err, data) {
-      if (err){
-        res.send(err);
-      }
-      else {
-        console.log('result gaspi : '+JSON.stringify(data, null, 2));
-        res.send(data);
-      }
-  });
+
+
+
+app.get('/gaspillage/:restaurantName', (req,res) => {
+  console.log('IN GET GASPILLAGE ! : '+ req.params.restaurantName+' - '+ JSON.stringify(req.query, null, 2));
+  var total = {
+    Items: [],
+    Count: 0
+  };
+  var current = null;
+
+  getRecursiveSample(req, res, total, current);
 });
 
 
@@ -383,9 +490,135 @@ app.put('/restaurant', (req,res) => {
 });
 
 
+// --------------------------------- CATEGORY -----------------------
+
+app.get('/categories', (req, res) => {
+  console.log('IN /clients');
+  const docClient = new AWS.DynamoDB.DocumentClient();
+  const params = {
+    TableName: 'CategoryFood',
+    Key: {  }
+  }
+
+  docClient.scan(params, (error, data) => {
+    if (error) {
+      console.log('ERROR : '+ JSON.stringify(error, null, 2) );
+    }
+    else {
+      res.send( { result: data.Items } );
+      console.log('SUCCESS : '+ JSON.stringify(data, null, 2) );
+    }
+  });
+});
+
+
+// ----------------------------- TRAY --------------------------------------------------------
+const getRecursiveTray = (req, res, total, current) => {
+  const docClient = new AWS.DynamoDB.DocumentClient();
+  if (current == null) {
+    console.log('FIRST PAGE');
+    console.log('REQ : '+ req.query.date + ' and '+req.query.date.replace(/-/g, '_'))
+    var params = {
+      TableName: 'tray',
+      FilterExpression: '(contains(image_ref, :valDate) OR contains(image_ref, :valDateAlt))  AND (#statuus = :valSup)',
+      ExpressionAttributeNames: { // a map of substitutions for attribute names with special characters
+        '#statuus': 'status'
+      },
+      ExpressionAttributeValues: {
+        ':valDate': req.query.date,
+        ':valDateAlt': req.query.date.replace(/-/g, '_'),
+        ':valSup': 'supervisely_processed',
+      }
+    };
+    docClient.scan(params, function(err, data) {
+        if (err){
+          console.log('ERROR while getting trays : '+JSON.stringify(err, null, 2));
+        }
+        else {
+          console.log('result get tray : '+data.Count);
+          current = data;
+          newTotal = {
+            Items: total.Items.concat(data.Items),
+            Count: total.Count + data.Count
+          }
+          if (current.LastEvaluatedKey == null) {
+            res.send(newTotal)
+          }
+          else {
+            getRecursiveTray(req, res, newTotal, current)
+          }
+        }
+    });
+  }
+  else {
+    //console.log('NEW PAGE : '+JSON.stringify(current,  null, 2));
+    console.log('REQ : '+ req.query.date + ' and '+req.query.date.replace(/-/g, '_'))
+    params = {
+      TableName: 'tray',
+      FilterExpression: '(contains(image_ref, :valDate) OR contains(image_ref, :valDateAlt)) AND (#statuus = :valSup)',
+      ExclusiveStartKey: {
+              "image_ref": current.LastEvaluatedKey.image_ref
+      },
+      ExpressionAttributeNames: { // a map of substitutions for attribute names with special characters
+        '#statuus': 'status'
+      },
+      ExpressionAttributeValues: {
+        ':valDate': req.query.date,
+        ':valDateAlt': req.query.date.replace(/-/g, '_'),
+        ':valSup': 'supervisely_processed',
+      }
+    };
+    //console.log("TEST BEFORE tray : "+JSON.stringify(params, null, 2));
+    docClient.scan(params, function(err, data) {
+        if (err){
+          console.log('ERROR while getting trays : '+JSON.stringify(err, null, 2));
+        }
+        else {
+          console.log('result get tray : '+data.Count);
+          current = data;
+          newTotal = {
+            Items: total.Items.concat(data.Items),
+            Count: total.Count + data.Count
+          }
+          if (current.LastEvaluatedKey == null) {
+            res.send(newTotal)
+          }
+          else {
+            getRecursiveTray(req, res, newTotal, current)
+          }
+        }
+    });
+  }
+}
+
+
+app.get('/:restaurantName/tray', async (req, res) => {
+  console.log('IN /tray : '+req.query.date);
+  var total = {
+    Items: [],
+    Count: 0
+  };
+  var current = null;
+
+  getRecursiveTray(req, res, total, current);
+});
+
+
+// ----------------------------- TRAY TEST --------------------------------------------------------
 
 
 
+app.get('/:restaurantName/trayTest', (req, res) => {
+  console.log('IN /tray TEST : ');
+  var total = {
+    Items: [],
+    Count: 0
+  };
+  var current = null;
+
+  getRecursiveTray(req, res, total, current);
+
+});
 
 
 
