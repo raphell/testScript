@@ -565,7 +565,7 @@ const getRecursiveTray = (req, res, total, current) => {
       ExpressionAttributeValues: {
         ':valDate': req.query.date,
         ':valDateAlt': req.query.date.replace(/-/g, '_'),
-        ':valSup': 'supervisely_processed',
+        ':valSup': 'mrcnn_done',
       }
     };
     //console.log("TEST BEFORE tray : "+JSON.stringify(params, null, 2));
